@@ -1,7 +1,7 @@
 import ccxt
 import time
 from concurrent.futures import ThreadPoolExecutor, thread
-
+import concurrent.futures
 from numpy import size
 
 class OMS:
@@ -10,8 +10,6 @@ class OMS:
                             'apiKey': 'fcEEkmTziv-l20a7szD_R8U7V-kq-YMFn9d7LuCF',
                             'secret': 'xF5rfQJU6evo75SYu1Ous64_axyOIm-Z-TyJzVeL',
                         })
-
-    
 
     def scale(self, price_range:tuple, num_orders:int):
         """
@@ -50,8 +48,8 @@ class OMS:
         for i, price in enumerate(sell):
             self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
     
-    def range(self, side, symbol, s_range, size, num_orders):
-        scale = self.scale(s_range, num_orders=num_orders)
+    def range(self, side, symbol, range, size, num_orders):
+        scale = self.scale(range, num_orders=num_orders)
         unit_size = size / len(scale)
         for i, price in enumerate(scale):
             self.ftx.create_order(symbol=symbol, side=side, amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
@@ -61,7 +59,7 @@ class OMS:
         symbol : Symbol for market
         """
         self.ftx.cancel_all_orders( symbol, {'conditionalOrdersOnly': 'true'})
-
+        
     def create_grid(self, symbol, sell_range, buy_range, size, num_orders):
         """
         symbol : Symbol for market
@@ -70,21 +68,22 @@ class OMS:
         size : size to be filled
         num_orders : amount of orders to fill
         """
-        unit_size = size / (2*num_orders)
-        sell_range = self.scale(sell_range, num_orders)
-        buy_range = self.scale(buy_range, num_orders)
-        for i, price in enumerate(sell_range):
-            if i % 2 == 1:
-                self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="limit", price=price, params={})
-            else:
-                self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
+        
+        self.range("buy", symbol, buy_range, int(size/2), int(num_orders/2))
+        self.range("sell", symbol, sell_range, int(size/2), int(num_orders/2))
+
+        # for i, price in enumerate(sell_range):
+        #     if i % 2 == 1:
+        #         self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="limit", price=price, params={})
+        #     else:
+        #         self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
             
             
-        for i, price in enumerate(buy_range):
-            if i % 2 == 1:
-                self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="limit", price=price, params={})
-            else:
-                self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
+        # for i, price in enumerate(buy_range):
+        #     if i % 2 == 1
+        #         self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="limit", price=price, params={})
+        #     else:
+        #         self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
 
     def twap(self, side:str, symbol:str, size:float, duration:int, orders:int = 20):
         """
@@ -104,7 +103,6 @@ class OMS:
             time.sleep(sleep_duration)
         
         print(f"{side} twap for {size} {symbol} completed")
-
 
     def ls_pair(self):
         """
@@ -132,18 +130,55 @@ class OMS:
             thread_list.append(executor.submit(sell))
             
     def ls_index(self, weights={}):
-        sz = len(weights)
-        if sz == 0:
-            weights = dict()
-            for i in range(sz):
-                ticker = input(f"ticker #{i}: ")
-                weight = input(f"weight #{i}: ")
-                weights[ticker] = weight
+        sz = input(f"# of tickers: ")
+        total_notional = float(input(f"Total Notional to enter ($): "))
+        duration = int(input("Duration to enter (Minutes): "))
+        orders = int(input("Total number of orders: "))
+        print(len(weights))
+        if len(weights) == 0:
+            for i in range(int(sz)):
+                symbol = input("Ticker: ")
+                weight = float(input("Weight: "))
+                weights[symbol.upper()+"-PERP"] = weight
+        
+        sleep_duration = duration / orders * 60
+        executed_orders = 0
+        while executed_orders < orders:
+            markets = self.ftx.load_markets()
+
+            for symbol, weight in weights.items():
+                value = ((weight * total_notional) / orders) / round(float(markets[symbol[:-5]+"/USD"]['info']['price']),8)
+                size_increment = float(markets[symbol[:-5]+"/USD"]['info']['sizeIncrement'])
+                size = int(value / size_increment) * size_increment
+                side = "buy" if weight > 0 else "sell"
+                print(f"{side}ing {symbol} with size {size}")
+                self.ftx.create_market_order(symbol=symbol, side=side, amount=abs(size))
+            executed_orders += 1
+            if executed_orders == orders:
+                print("index entry complete")
+                return
+            time.sleep(sleep_duration)
             
+    def buy_percentage(self, symbol):
+        print(self.ftx.fetch_orders(symbol=symbol))
 
     def bump(self, ticker, bump_value):
         # get trigger orders of ticker
         # submit modified query with bump
+        pass
 
+    def scale_tranches(self, side:str, symbol:str, ranges:list, size:float, orders_per_tranche:int, total_tranches:int):
 
-    
+        tranche_spread = abs(ranges[0] - ranges[1]) / total_tranches
+        tranche = list()
+        start_range = ranges[0]
+        for i in range(total_tranches):
+            
+            if (side == "buy"):
+                end_range = start_range-tranche_spread
+            else:
+                end_range = start_range+tranche_spread
+            tranche.append([start_range, end_range])
+            start_range = end_range
+        for tranche_range in tranche:
+            self.range(side, symbol, tranche_range, size/total_tranches, orders_per_tranche)

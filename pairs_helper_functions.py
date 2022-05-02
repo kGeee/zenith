@@ -1,9 +1,11 @@
+
 import ccxt
 from pprint import pprint
 import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import date, timedelta
-
+import matplotlib
+import numpy as np
 
 def get_historical_data(start_date, market, resolution):
   """
@@ -160,7 +162,7 @@ def index_chart(long, short, start_date):
   print(f"current return: {round(c,2)}%")
   print(f"% to max: {round(b-c,2)}%")
 
-def multi_weighted_index(weights, lookback_window = 30, starting_balance = 1000):
+def multi_weighted_index(weights, lookback_window = 30, resolution="1h",starting_balance = 1000):
     """
     Multiweighted index visualizer
     weights - dictionary of tickers with respective weights (negative weight indicates short)
