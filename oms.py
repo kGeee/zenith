@@ -7,8 +7,8 @@ from numpy import size
 class OMS:
     def __init__(self):
         self.ftx =  ccxt.ftx({
-                            'apiKey': 'fcEEkmTziv-l20a7szD_R8U7V-kq-YMFn9d7LuCF',
-                            'secret': 'xF5rfQJU6evo75SYu1Ous64_axyOIm-Z-TyJzVeL',
+                            'apiKey': API_KEY_HERE,
+                            'secret': API_SECRET_HERE,
                         })
 
     def scale(self, price_range:tuple, num_orders:int):
