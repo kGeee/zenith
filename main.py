@@ -1,8 +1,9 @@
 import sys
 sys.path.append("..")
 from oms import OMS
-
+import os
 import argparse
+from termcolor import colored
 
 parser = argparse.ArgumentParser()
 parser.add_argument("function", help="function to execute")
@@ -16,7 +17,13 @@ match args.function:
 	case "help":
 		d = {functions[i]:helper[i] for i in range(len(functions))}
 		for k,v in d.items():
-			print(f"{k} - {v}")
+			print(colored(k, "red"), "-", colored(v,"green"))
+	case "login":
+		if os.getenv('API_KEY') == "" or os.getenv("API_SECRET"):
+			os.environ["API_KEY"] = input("Insert API Key: ")
+			os.environ["API_SECRET"] = input("Insert API SECRET: ")
+		else:
+			print("Already logged in!")
 	case "cancel_all":
 		symbol = input("Symbol to cancel: ")
 		o.cancel_all_orders(symbol)

@@ -4,9 +4,14 @@ from concurrent.futures import ThreadPoolExecutor, thread
 import concurrent.futures
 from numpy import size
 import os
+from termcolor import colored
+
+from dotenv import load_dotenv
+load_dotenv()
 
 class OMS:
     def __init__(self):
+        print(os.getenv('API_KEY'))
         self.ftx =  ccxt.ftx({
                             'apiKey': os.getenv('API_KEY'),
                             'secret': os.getenv('API_SECRET'),
@@ -72,7 +77,7 @@ class OMS:
         
         self.range("buy", symbol, buy_range, int(size/2), int(num_orders/2))
         self.range("sell", symbol, sell_range, int(size/2), int(num_orders/2))
-        
+
     def twap(self, side:str, symbol:str, size:float, duration:int, orders:int = 20):
         """
         side : side to fill - "buy" or "sell"
@@ -85,7 +90,9 @@ class OMS:
         unit_size = size / orders
         sleep_duration = duration / orders * 60
         executed_orders = 0
+        color = "red" if side=="sell" else "green"
         while executed_orders < orders:
+            print(colored(f"{side}ing", color), colored(symbol,"yellow"), "size", colored(unit_size, "cyan"))
             self.ftx.create_market_order(symbol=symbol, side=side, amount=unit_size)
             executed_orders += 1
             time.sleep(sleep_duration)
@@ -117,6 +124,9 @@ class OMS:
             thread_list.append(executor.submit(buy))
             thread_list.append(executor.submit(sell))
             
+    def reduce(self, symbol, pct):
+        pass
+
     def ls_index(self, weights={}):
         sz = input(f"# of tickers: ")
         total_notional = float(input(f"Total Notional to enter ($): "))
@@ -139,7 +149,8 @@ class OMS:
                 size_increment = float(markets[symbol[:-5]+"/USD"]['info']['sizeIncrement'])
                 size = int(value / size_increment) * size_increment
                 side = "buy" if weight > 0 else "sell"
-                print(f"{side}ing {symbol} with size {size}")
+                color = "red" if side=="sell" else "green"
+                print(colored(f"{side}ing", color), colored(symbol,"yellow"), "size", colored(size, "cyan"))
                 self.ftx.create_market_order(symbol=symbol, side=side, amount=abs(size))
             executed_orders += 1
             if executed_orders == orders:
