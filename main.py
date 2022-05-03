@@ -10,7 +10,13 @@ parser.add_argument("function", help="function to execute")
 
 args = parser.parse_args()
 o = OMS()
+functions = ["cancel_all", "twap", "ls_pair", "index", "scale", "tranche"]
+helper = ["cancels all orders for symbol", "twaps into specified pair", "enter into l/s pair with twap", "enter into multiweighted index","scales into orders", "places scaled tranches"]
 match args.function:
+	case "help":
+		d = {functions[i]:helper[i] for i in range(len(functions))}
+		for k,v in d.items():
+			print(f"{k} - {v}")
 	case "cancel_all":
 		symbol = input("Symbol to cancel: ")
 		o.cancel_all_orders(symbol)
@@ -23,7 +29,7 @@ match args.function:
 		o.twap(side, symbol, size, duration, orders)
 	case "ls_pair":
 		o.ls_pair()
-	case "ls":
+	case "index":
 		o.ls_index()
 	case "scale":
 		side = input("Side to enter: ")

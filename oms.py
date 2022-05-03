@@ -3,12 +3,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor, thread
 import concurrent.futures
 from numpy import size
+import os
 
 class OMS:
     def __init__(self):
         self.ftx =  ccxt.ftx({
-                            'apiKey': API_KEY_HERE,
-                            'secret': API_SECRET_HERE,
+                            'apiKey': os.getenv('API_KEY'),
+                            'secret': os.getenv('API_SECRET'),
                         })
 
     def scale(self, price_range:tuple, num_orders:int):
@@ -71,20 +72,7 @@ class OMS:
         
         self.range("buy", symbol, buy_range, int(size/2), int(num_orders/2))
         self.range("sell", symbol, sell_range, int(size/2), int(num_orders/2))
-
-        # for i, price in enumerate(sell_range):
-        #     if i % 2 == 1:
-        #         self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="limit", price=price, params={})
-        #     else:
-        #         self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
-            
-            
-        # for i, price in enumerate(buy_range):
-        #     if i % 2 == 1
-        #         self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="limit", price=price, params={})
-        #     else:
-        #         self.ftx.create_order(symbol=symbol, side="buy", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
-
+        
     def twap(self, side:str, symbol:str, size:float, duration:int, orders:int = 20):
         """
         side : side to fill - "buy" or "sell"
