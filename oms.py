@@ -5,13 +5,13 @@ import concurrent.futures
 from numpy import size
 import os
 from termcolor import colored
-
+import pandas as pd
 from dotenv import load_dotenv
+from prettytable import PrettyTable
 load_dotenv()
 
 class OMS:
     def __init__(self):
-        print(os.getenv('API_KEY'))
         self.ftx =  ccxt.ftx({
                             'apiKey': os.getenv('API_KEY'),
                             'secret': os.getenv('API_SECRET'),
@@ -132,7 +132,6 @@ class OMS:
         total_notional = float(input(f"Total Notional to enter ($): "))
         duration = int(input("Duration to enter (Minutes): "))
         orders = int(input("Total number of orders: "))
-        print(len(weights))
         if len(weights) == 0:
             for i in range(int(sz)):
                 symbol = input("Ticker: ")
@@ -165,6 +164,31 @@ class OMS:
         # get trigger orders of ticker
         # submit modified query with bump
         pass
+
+    def fetch_account_balance(self):
+        balance = self.ftx.fetch_balance()
+        balances = [[i['coin'],i['usdValue']]for i in balance['info']['result'] if float(i['usdValue']) > 0.01]
+        # print(sum([round(float(i[1]),2) for i in balances]))
+        return sum([round(float(i[1]),2) for i in balances])
+
+
+    def positions(self):
+        t = PrettyTable(['Symbol', 'Side', 'Weight (%)', 'Contracts', 'Notional ($)', 'uPnL'])
+
+        positions = pd.DataFrame(self.ftx.fetch_positions())
+        p = positions[positions['notional'] > 0][['symbol','notional','side','contracts','unrealizedPnl']]
+        total = p['notional'].sum()
+        p['weight'] = round(p['notional'] / total * 100,2)
+        for i in p.sort_values(by=["weight"], ascending=False).iterrows():
+            color = "red" if i[1]['side'] == "short" else "green"
+            pnl = "red" if i[1]['unrealizedPnl'] <= 0 else "green"
+            t.add_row([colored(i[1]['symbol'].removesuffix('/USD:USD'), 'yellow'), colored(i[1]['side'], color), colored(i[1]['weight'],"yellow"), colored(i[1]['contracts'], 'yellow'), colored(i[1]['notional'],"yellow"),  colored(i[1]['unrealizedPnl'], "yellow")])
+        account_value = self.fetch_account_balance()
+        print(t)
+        print(colored(f"Total Leverage: {total / account_value}", "yellow"))
+        print(colored(f"Total $: {total}", "yellow"))
+
+    
 
     def scale_tranches(self, side:str, symbol:str, ranges:list, size:float, orders_per_tranche:int, total_tranches:int):
 

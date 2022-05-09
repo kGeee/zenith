@@ -103,7 +103,7 @@ def compare(date, ticker, res="1h",long=False,tickers = ["BTC","ETH","LUNA", "SO
       long = ticker.removesuffix("-PERP")
       axs[int(i/sz)][int(i%sz)].set_title(f"{long}/{tickers[i]}")
       axs[int(i/sz)][int(i%sz)].plot(df['time'], df['returns'])     
-      max, min, cur = analyze(df,ticker,tickers[i])
+      max, min, cur = analyze(df)
       info_list.append([f"{long}/{tickers[i]}",max,min,cur])
       
     plt.show()
@@ -111,11 +111,11 @@ def compare(date, ticker, res="1h",long=False,tickers = ["BTC","ETH","LUNA", "SO
         
   else:
       for i in range(len(tickers)):
-        df = ls_index(date, tickers[i]+"-PERP",t1, res)
-        long = t1.removesuffix("-PERP")
+        df = ls_index(date, tickers[i]+"-PERP",ticker, res)
+        long = ticker.removesuffix("-PERP")
         axs[int(i/sz)][int(i%sz)].set_title(f"{tickers[i]}/{long}")
         axs[int(i/sz)][int(i%sz)].plot(df['time'], df['returns'])     
-        max, min, cur = analyze(df,t1,tickers[i])
+        max, min, cur = analyze(df)
         info_list.append([f"{tickers[i]}/{long}",max,min,cur])
     
   info = pd.DataFrame(info_list,columns=['pair','max_drawdown','max_return','current_return'])
@@ -162,14 +162,13 @@ def index_chart(long, short, start_date):
   print(f"current return: {round(c,2)}%")
   print(f"% to max: {round(b-c,2)}%")
 
-def multi_weighted_index(weights, lookback_window = 30, resolution="1h",starting_balance = 1000):
+def multi_weighted_index(weights, lookback_window = 30, resolution="1h", starting_balance = 1000):
     """
     Multiweighted index visualizer
     weights - dictionary of tickers with respective weights (negative weight indicates short)
     lookback_window - lookback period in days
     starting_balance - starting balance
     """
-    resolution = '1h'
     start_date = date.today() - timedelta(lookback_window)
     ohlc_data = dict()
     holding = dict()
