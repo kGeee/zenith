@@ -70,6 +70,7 @@ def download_historical_data(start_date, ticker, resolution):
 
 
     df = pd.DataFrame(data, columns=['time','open','high','low','close','volume'])
+    df.to_parquet(f"{ticker}_{start_date}")
     df.to_csv(fullname)
     return file_name
 
@@ -180,7 +181,7 @@ def multi_weighted_index(weights, lookback_window = 30, resolution="1h", startin
             ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
         
         holding[ticker] = weight * starting_balance / ohlc['open'][0]
-        ohlc['return'] = ohlc['close'] / ohlc['open'][0]
+        ohlc['return'] = (ohlc['close'] - ohlc['open'][0]) / ohlc['open'][0]
         if holding[ticker] < 0:
             ohlc['value'] = weight * starting_balance * (-1/ohlc['return'])
             ohlc['pnl'] = ohlc['value'] + weight*starting_balance
@@ -206,7 +207,7 @@ def multi_weighted_index(weights, lookback_window = 30, resolution="1h", startin
     for k,v in weights.items():
         print(f"{k} : {v}")
 
-    return ohlc_data, va
+    return ohlc_data, va, pct_return
 
 
 #####################################################################
@@ -253,6 +254,29 @@ def fetch_prices(ftx, weights, name):
         with open(f"{name}/{ticker}.csv", 'a') as f:
             f.write("%s\n"%(price,))
             f.close()
+
+def roll(df, w):
+    # stack df.values w-times shifted once at each stack
+    roll_array = np.dstack([df.values[i:i+w, :] for i in range(len(df.index) - w + 1)]).T
+    # roll_array is now a 3-D array and can be read into
+    # a pandas panel object
+    panel = pd.Panel(roll_array, 
+                     items=df.index[w-1:],
+                     major_axis=df.columns,
+                     minor_axis=pd.Index(range(w), name='roll'))
+    # convert to dataframe and pivot + groupby
+    # is now ready for any action normally performed
+    # on a groupby object
+    return panel.to_frame().unstack().T.groupby(level=0)
+
+def beta(df):
+    # first column is the market
+    X = df.values[:, [0]]
+    # prepend a column of ones for the intercept
+    X = np.concatenate([np.ones_like(X), X], axis=1)
+    # matrix algebra
+    b = np.linalg.pinv(X.T.dot(X)).dot(X.T).dot(df.values[:, 1:])
+    return pd.Series(b[1], df.columns[1:], name='Beta')
 
 def create_index(ftx,  weights, amount):
     import csv,os

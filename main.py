@@ -11,8 +11,8 @@ parser.add_argument("function", help="function to execute")
 
 args = parser.parse_args()
 o = OMS()
-functions = ["cancel_all", "twap", "positions", "ls_pair", "index", "grid","scale", "tranche"]
-helper = ["cancels all orders for symbol", "twaps into specified pair", "prints current positions", "enter into l/s pair with twap", "enter into multiweighted index","creates grid on specified instrument","scales into orders", "places scaled tranches"]
+functions = ["rebalance","cancel_all", "twap", "positions", "ls_pair", "index", "grid","scale", "tranche"]
+helper = ["rebalances portfolio", "cancels all orders for symbol", "twaps into specified pair", "prints current positions", "enter into l/s pair with twap", "enter into multiweighted index","creates grid on specified instrument","scales into orders", "places scaled tranches"]
 match args.function:
 	case "help":
 		d = {functions[i]:helper[i] for i in range(len(functions))}
@@ -57,6 +57,8 @@ match args.function:
 		size = float(input("Size to enter (in symbol): "))
 		orders = int(input("Total orders to execute: "))
 		o.range(side, symbol, [start_range, end_range], size, orders)
+	case "rebalance":
+		o.rebalance()
 	case "tranche":
 		side = input("Side to enter: ")
 		symbol = input("Symbol to enter: ")

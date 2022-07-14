@@ -2,6 +2,7 @@ import ccxt
 import time
 from concurrent.futures import ThreadPoolExecutor, thread
 import concurrent.futures
+from matplotlib.pyplot import axis
 from numpy import size
 import os
 from termcolor import colored
@@ -13,8 +14,11 @@ load_dotenv()
 class OMS:
     def __init__(self):
         self.ftx =  ccxt.ftx({
-                            'apiKey': os.getenv('API_KEY'),
-                            'secret': os.getenv('API_SECRET'),
+                            'apiKey': "fcEEkmTziv-l20a7szD_R8U7V-kq-YMFn9d7LuCF",
+                            'secret': "xF5rfQJU6evo75SYu1Ous64_axyOIm-Z-TyJzVeL",
+                            # 'hostname': 'ftx.us',
+                            # 'name': 'FTXUS',
+                            'enableRateLimit': True,
                         })
 
     def scale(self, price_range:tuple, num_orders:int):
@@ -33,7 +37,7 @@ class OMS:
     def buy_range(self, symbol:str, b_range:tuple, size:int, num_orders:int):
         """
         symbol : Symbol for market
-        b_range: Buy range 
+        b_range: Buy range
         size : size to be filled
         num_orders : amount of orders to fill
         """
@@ -45,7 +49,7 @@ class OMS:
     def sell_range(self, symbol, s_range, size, num_orders):
         """
         symbol : Symbol for market
-        s_range: Sell range 
+        s_range: Sell range
         size : size to be filled
         num_orders : amount of orders to fill
         """
@@ -53,7 +57,7 @@ class OMS:
         unit_size = size / len(sell)
         for i, price in enumerate(sell):
             self.ftx.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
-    
+
     def range(self, side, symbol, range, size, num_orders):
         scale = self.scale(range, num_orders=num_orders)
         unit_size = size / len(scale)
@@ -65,18 +69,59 @@ class OMS:
         symbol : Symbol for market
         """
         self.ftx.cancel_all_orders( symbol, {'conditionalOrdersOnly': 'true'})
-        
+
     def create_grid(self, symbol, sell_range, buy_range, size, num_orders):
         """
         symbol : Symbol for market
-        sell_range: Sell range 
-        buy_range: Buy range 
+        sell_range: Sell range
+        buy_range: Buy range
         size : size to be filled
         num_orders : amount of orders to fill
         """
-        
+
         self.range("buy", symbol, buy_range, int(size/2), int(num_orders/2))
         self.range("sell", symbol, sell_range, int(size/2), int(num_orders/2))
+
+    def balance(self):
+        df = pd.DataFrame(self.ftx.fetch_balance()['info']['result'])
+        sum = 0
+        for i in df['usdValue']:
+            sum += float(i)
+        return sum
+
+    def last_prices(self, markets):
+        mkts = pd.DataFrame(self.ftx.fetch_markets())
+
+        last_prices = dict()
+        for i in markets.keys():
+            s = i + "/USD:USD"
+            last = mkts.query("symbol == @s")
+            # print(last['info'].iloc[0]['last'])
+            last_prices[i] = (last['info'].iloc[0]['last'], last['info'].iloc[0]['minProvideSize'])
+        return last_prices
+
+    def twap_df(self, df):
+        def side(row):
+            if row['diff'] <= 0:
+                return "sell"
+            else:
+                return "buy"
+
+        duration = int(input("wait time between orders in seconds: "))
+        orders = int(input("orders: "))
+        df['unit_size'] = df['diff'].div(orders)
+        df['side'] = df.apply(lambda row: side(row), axis=1)
+        executed_orders = 0
+        while executed_orders < orders:
+            for i in df.iterrows():
+                # print(i[1])
+                color = "red" if i[1]['side'] == "sell" else "green"
+                print(colored(f"{i[1]['side']}ing", color), colored(abs(i[1]['unit_size']), "cyan"), colored(i[1]['ticker'] + "-PERP" ,"yellow"))
+                self.ftx.create_market_order(symbol=i[1]['ticker'] + "-PERP", side=i[1]['side'], amount=abs(i[1]['unit_size']))
+            executed_orders += 1
+            time.sleep(duration)
+
+
 
     def twap(self, side:str, symbol:str, size:float, duration:int, orders:int = 20):
         """
@@ -86,7 +131,7 @@ class OMS:
         duration : time to fill size in minutes
         orders : amount of orders to fill
         """
-        # splits total_size into equal sizes to fill in given duration 
+        # splits total_size into equal sizes to fill in given duration
         unit_size = size / orders
         sleep_duration = duration / orders * 60
         executed_orders = 0
@@ -96,7 +141,7 @@ class OMS:
             self.ftx.create_market_order(symbol=symbol, side=side, amount=unit_size)
             executed_orders += 1
             time.sleep(sleep_duration)
-        
+
         print(f"{side} twap for {size} {symbol} completed")
 
     def ls_pair(self):
@@ -123,7 +168,7 @@ class OMS:
         with ThreadPoolExecutor(max_workers=2) as executor:
             thread_list.append(executor.submit(buy))
             thread_list.append(executor.submit(sell))
-            
+
     def reduce(self, symbol, pct):
         pass
 
@@ -137,7 +182,7 @@ class OMS:
                 symbol = input("Ticker: ")
                 weight = float(input("Weight: "))
                 weights[symbol.upper()+"-PERP"] = weight
-        
+
         sleep_duration = duration / orders * 60
         executed_orders = 0
         while executed_orders < orders:
@@ -156,7 +201,7 @@ class OMS:
                 print("index entry complete")
                 return
             time.sleep(sleep_duration)
-            
+
     def buy_percentage(self, symbol):
         print(self.ftx.fetch_orders(symbol=symbol))
 
@@ -171,32 +216,35 @@ class OMS:
         # print(sum([round(float(i[1]),2) for i in balances]))
         return sum([round(float(i[1]),2) for i in balances])
 
-
     def positions(self):
         t = PrettyTable(['Symbol', 'Side', 'Weight (%)', 'Contracts', 'Notional ($)', 'uPnL'])
 
         positions = pd.DataFrame(self.ftx.fetch_positions())
         p = positions[positions['notional'] > 0][['symbol','notional','side','contracts','unrealizedPnl']]
         total = p['notional'].sum()
-        p['weight'] = round(p['notional'] / total * 100,2)
+        p['weight'] = round(p['notional'] / total,2) * 100
         for i in p.sort_values(by=["weight"], ascending=False).iterrows():
             color = "red" if i[1]['side'] == "short" else "green"
             pnl = "red" if i[1]['unrealizedPnl'] <= 0 else "green"
-            t.add_row([colored(i[1]['symbol'].removesuffix('/USD:USD'), 'yellow'), colored(i[1]['side'], color), colored(i[1]['weight'],"yellow"), colored(i[1]['contracts'], 'yellow'), colored(i[1]['notional'],"yellow"),  colored(i[1]['unrealizedPnl'], "yellow")])
+            t.add_row([colored(i[1]['symbol'].removesuffix('/USD:USD'), 'yellow'), colored(i[1]['side'], color), colored(i[1]['weight'],"yellow"), colored(i[1]['contracts'], 'yellow'), colored(i[1]['notional'],"yellow"),  colored(i[1]['unrealizedPnl'], pnl)])
         account_value = self.fetch_account_balance()
         print(t)
         print(colored(f"Total Leverage: {total / account_value}", "yellow"))
         print(colored(f"Total $: {total}", "yellow"))
+        return p
 
-    
+    def pnl(self):
+        positions = pd.DataFrame(self.ftx.fetch_positions())
+        p = positions[positions['notional'] > 0][['symbol','notional','side','unrealizedPnl']]
+        pnl = p['unrealizedPnl'].sum()
+        return pnl, p
 
     def scale_tranches(self, side:str, symbol:str, ranges:list, size:float, orders_per_tranche:int, total_tranches:int):
-
         tranche_spread = abs(ranges[0] - ranges[1]) / total_tranches
         tranche = list()
         start_range = ranges[0]
         for i in range(total_tranches):
-            
+
             if (side == "buy"):
                 end_range = start_range-tranche_spread
             else:
@@ -205,3 +253,63 @@ class OMS:
             start_range = end_range
         for tranche_range in tranche:
             self.range(side, symbol, tranche_range, size/total_tranches, orders_per_tranche)
+
+    def net_lev(self):
+        net_lev = 0.0
+        value = self.balance()
+        pos = self.positions()
+        for i in pos.iterrows():
+            if i[1]['side'] == "short":
+                net_lev -= i[1]['notional'] / value
+            else:
+                net_lev += i[1]['notional'] / value
+        print("Net Leverage :", net_lev)
+
+    def rebalance(self, markets={}):
+        # rebalance account to weights portfolio, if empty ask user for input
+        
+        if markets=={}:
+            sz = input("Number of tickers: ")
+            for i in range(int(sz)):
+                ins = input("Ticker: ")
+                w = float(input("Weight: "))
+                markets[ins.upper()] = w
+
+        pos = self.positions()
+        # pos = o.positions()
+        lev = float(input("Leverage: "))
+        lp = self.last_prices(markets)
+        value = self.balance()
+        size = dict()
+
+        # calculate desired size
+        for k,v in markets.items():
+            notional = v*value*lev            
+            amt = notional / float(lp[k][0])
+            sz = int(amt / float(lp[k][1])) * float(lp[k][1])
+            size[k] = sz
+
+        sz_pd = pd.DataFrame([[k,v] for k,v in size.items()], columns=["ticker","size"])
+
+        def size(row):
+            if row['side'] == "short":
+                return -row['contracts']
+            else:
+                return row['contracts']
+
+        def rm_suffix(row):
+            return row['symbol'].removesuffix("/USD:USD")
+
+        pos['curr_size'] = pos.apply (lambda row: size(row), axis=1)
+        pos['ticker'] = pos.apply (lambda row: rm_suffix(row), axis=1)
+
+        curr = pd.DataFrame()
+        curr['curr_size'] = pos.apply (lambda row: size(row), axis=1)
+        curr['ticker'] = pos.apply (lambda row: rm_suffix(row), axis=1)
+
+        final = pd.merge(sz_pd, curr, on="ticker", how="outer").fillna(0)
+        final['diff'] = final['size'] - final['curr_size']
+        self.twap_df(final)
+        self.net_lev()
+        # print(pos.apply (lambda row: size(row), axis=1))
+
