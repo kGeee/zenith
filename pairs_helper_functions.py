@@ -162,6 +162,12 @@ def index_chart(long, short, start_date):
   print(f"current return: {round(c,2)}%")
   print(f"% to max: {round(b-c,2)}%")
 
+def remove_data():
+    import os
+    import glob
+    for f in glob.glob("data/*"):
+        os.remove(f)
+
 def multi_weighted_index(weights, lookback_window = 30, resolution="1h", starting_balance = 1000):
     """
     Multiweighted index visualizer
@@ -205,6 +211,8 @@ def multi_weighted_index(weights, lookback_window = 30, resolution="1h", startin
     print(f"current return: {round(100*(pct_return[-1] - 1),2)}%")
     for k,v in weights.items():
         print(f"{k} : {v}")
+
+    remove_data()
 
     return ohlc_data, va
 

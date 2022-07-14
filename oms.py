@@ -6,15 +6,15 @@ from numpy import size
 import os
 from termcolor import colored
 import pandas as pd
-from dotenv import load_dotenv
 from prettytable import PrettyTable
-load_dotenv()
+import colorama
+colorama.init()
 
 class OMS:
     def __init__(self):
         self.ftx =  ccxt.ftx({
-                            'apiKey': os.getenv('API_KEY'),
-                            'secret': os.getenv('API_SECRET'),
+                            'apiKey': "uEOKam46Pb2fkE5mOb3sM3T0P-054s2mZ2jx2UQD",
+                            'secret': "Tjlu48nTBE8hSDHkm7thbE6BIjqOXhJkejgZlt45",
                         })
 
     def scale(self, price_range:tuple, num_orders:int):
@@ -93,7 +93,7 @@ class OMS:
         color = "red" if side=="sell" else "green"
         while executed_orders < orders:
             print(colored(f"{side}ing", color), colored(symbol,"yellow"), "size", colored(unit_size, "cyan"))
-            self.ftx.create_market_order(symbol=symbol, side=side, amount=unit_size)
+            self.ftx.create_market_order(symbol=symbol, side=side, amount=unit_size, price=None)
             executed_orders += 1
             time.sleep(sleep_duration)
         
@@ -150,7 +150,7 @@ class OMS:
                 side = "buy" if weight > 0 else "sell"
                 color = "red" if side=="sell" else "green"
                 print(colored(f"{side}ing", color), colored(symbol,"yellow"), "size", colored(size, "cyan"))
-                self.ftx.create_market_order(symbol=symbol, side=side, amount=abs(size))
+                self.ftx.create_market_order(symbol=symbol, side=side, amount=abs(size), price=None)
             executed_orders += 1
             if executed_orders == orders:
                 print("index entry complete")
