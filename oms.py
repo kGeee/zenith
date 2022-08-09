@@ -14,17 +14,11 @@ class OMS:
     def __init__(self):
 
         ftx = ccxt.ftx({
-                            'apiKey': "fcEEkmTziv-l20a7szD_R8U7V-kq-YMFn9d7LuCF",
-                            'secret': "xF5rfQJU6evo75SYu1Ous64_axyOIm-Z-TyJzVeL",
-                            # 'hostname': 'ftx.us',
-                            # 'name': 'FTXUS',
+                            'apiKey': "",
+                            'secret': "",
                             'enableRateLimit': True,
                         })
                 
-        bybit = ccxt.bybit({
-                            'apiKey': "BhTEwmNLMZpI6Ca5Pi",
-                            'secret': "zRkKhYcVVVevZd5ZWvDlbDVcc73g4NxXEtye"
-        })
 
         self.oms =  ftx
 
