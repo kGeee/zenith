@@ -62,7 +62,7 @@ def download_historical_data(start_date, ticker, resolution):
     import os
     data = get_historical_data(start_date, ticker, resolution)
     file_name = f"{ticker}_{resolution}_{start_date}.csv"
-    outdir = './data'
+    outdir = 'data'
     if not os.path.exists(outdir):
         os.mkdir(outdir)
 
@@ -70,7 +70,6 @@ def download_historical_data(start_date, ticker, resolution):
 
 
     df = pd.DataFrame(data, columns=['time','open','high','low','close','volume'])
-    df.to_parquet(f"{ticker}_{start_date}")
     df.to_csv(fullname)
     return file_name
 
@@ -169,7 +168,7 @@ def remove_data():
     for f in glob.glob("data/*"):
         os.remove(f)
 
-def multi_weighted_index(weights, lookback_window = 30, resolution="1h", starting_balance = 1000):
+def multi_weighted_index(weights, lookback_window = 30, resolution="1h"):
     """
     Multiweighted index visualizer
     weights - dictionary of tickers with respective weights (negative weight indicates short)
@@ -179,47 +178,31 @@ def multi_weighted_index(weights, lookback_window = 30, resolution="1h", startin
     start_date = date.today() - timedelta(lookback_window)
     ohlc_data = dict()
     holding = dict()
-    for ticker, weight in weights.items():
+    returns = pd.DataFrame()
+    for ticker in weights.keys():
         try:
             ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
         except FileNotFoundError as e:
             ohlc_filename = download_historical_data(start_date, f"{ticker}-PERP", resolution)
             ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
         
-        holding[ticker] = weight * starting_balance / ohlc['open'][0]
-        ohlc['return'] = (ohlc['close'] - ohlc['open'][0]) / ohlc['open'][0]
-        if holding[ticker] < 0:
-            ohlc['value'] = weight * starting_balance * (-1/ohlc['return'])
-            ohlc['pnl'] = ohlc['value'] + weight*starting_balance
+        ohlc[f"return_{ticker}"] = (ohlc['close'] - ohlc['open'][0]) / ohlc['open'][0]
+        returns[ticker] = ohlc[f"return_{ticker}"]
 
-        else:
-            ohlc['value'] = weight * starting_balance * ohlc['return']
-            ohlc['pnl'] = ohlc['value'] - weight*starting_balance
-
-        ohlc_data[ticker] = ohlc
-    windowlength = len(list(ohlc_data.values())[0]) - 1
-    va = [0]*(windowlength)
-    plt.figure(figsize=(15,10))
-    for k,v in ohlc_data.items():
-        for i in range(len(va)):
-            va[i] += v['pnl'][i]
-        plt.plot(v['return'], label = k)
-    pct_return = [(i/starting_balance) + 1 for i in va]
-    plt.plot(pct_return, color='black', label='return')
-    plt.legend()
-    print(f"min drawdown: {round(100*(min(pct_return) - 1),2)}%")
-    print(f"max return: {round(100*(max(pct_return) - 1),2)}%")
-    print(f"current return: {round(100*(pct_return[-1] - 1),2)}%")
     for k,v in weights.items():
-        print(f"{k} : {v}")
-
-<<<<<<< HEAD
-    return ohlc_data, va, pct_return
-=======
+        returns[k] = returns[k] * v
+    returns["cum_returns"] = returns.sum(axis=1)
     remove_data()
 
-    return ohlc_data, va
->>>>>>> 4e79effe22cfd66bf0ca972264be0b8857fdb6cc
+    plt.figure(figsize=(15,10))
+    plt.plot(returns["cum_returns"], color='black', label='return')
+    for ticker in weights.keys():
+        plt.plot(returns[ticker], label=ticker)
+    plt.legend()
+
+
+    return returns
+    
 
 
 #####################################################################

@@ -133,15 +133,16 @@ class OMS:
         orders = int(input("orders: "))
         df['unit_size'] = df['diff'].div(orders)
         df['side'] = df.apply(lambda row: side(row), axis=1)
-        markets = list()
+        print(list(df.ticker))
+
         executed_orders = 0
         while executed_orders < orders:
             for i in df.iterrows():
                 # print(i[1])
                 color = "red" if i[1]['side'] == "sell" else "green"
                 
-                print(colored(f"{i[1]['side']}ing", color), colored(round(abs(i[1]['unit_size'],4)), "cyan"), colored(i[1]['ticker'] + "-PERP" ,"yellow"))
-                # self.oms.create_market_order(symbol=i[1]['ticker'] + "-PERP", side=i[1]['side'], amount=abs(i[1]['unit_size']))
+                print(colored(f"{i[1]['side']}ing", color), colored(round(abs(i[1]['unit_size']),4), "cyan"), colored(i[1]['ticker'] + "-PERP" ,"yellow"))
+                self.oms.create_market_order(symbol=i[1]['ticker'] + "-PERP", side=i[1]['side'], amount=abs(i[1]['unit_size']))
             executed_orders += 1
             time.sleep(duration)
 
@@ -257,7 +258,7 @@ class OMS:
         print(colored(f"Total $: {total}", "yellow"))
         return p
 
-    def pcanl(self):
+    def pnl(self):
         positions = pd.DataFrame(self.oms.fetch_positions())
         p = positions[positions['notional'] > 0][['symbol','notional','side','unrealizedPnl']]
         pnl = p['unrealizedPnl'].sum()

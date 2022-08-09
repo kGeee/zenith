@@ -11,9 +11,12 @@ parser.add_argument("function", help="function to execute")
 
 args = parser.parse_args()
 o = OMS()
-functions = ["rebalance","cancel_all", "twap", "positions", "ls_pair", "index", "grid","scale", "tranche"]
-helper = ["rebalances portfolio", "cancels all orders for symbol", "twaps into specified pair", "prints current positions", "enter into l/s pair with twap", "enter into multiweighted index","creates grid on specified instrument","scales into orders", "places scaled tranches"]
+functions = ["pnl","rebalance","cancel_all", "twap", "positions", "ls_pair", "index", "grid","scale", "tranche"]
+helper = ["returns pnl", "rebalances portfolio", "cancels all orders for symbol", "twaps into specified pair", "prints current positions", "enter into l/s pair with twap", "enter into multiweighted index","creates grid on specified instrument","scales into orders", "places scaled tranches"]
 match args.function:
+	case "pnl":
+		pnl, p = o.pnl()
+		print(pnl)
 	case "help":
 		d = {functions[i]:helper[i] for i in range(len(functions))}
 		for k,v in d.items():
