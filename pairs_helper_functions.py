@@ -210,7 +210,7 @@ def multi_weighted_index_v2(weights, lookback_window , resolution="1h"):
     lookback_window - lookback period in days
     starting_balance - starting balance
     """
-    start_date = date.today() - timedelta(lookback_window)
+    start_date = date.today() - timedelta(int(lookback_window))
     returns = pd.DataFrame()
     for ticker in weights.keys():
         download_historical_data(start_date, f"{ticker}-PERP", resolution)
