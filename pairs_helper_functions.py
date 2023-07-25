@@ -168,42 +168,7 @@ def remove_data():
     for f in glob.glob("data/*"):
         os.remove(f)
 
-def multi_weighted_index(weights, lookback_window = 30, resolution="1h"):
-    """
-    Multiweighted index visualizer
-    weights - dictionary of tickers with respective weights (negative weight indicates short)
-    lookback_window - lookback period in days
-    starting_balance - starting balance
-    """
-    start_date = date.today() - timedelta(lookback_window)
-    ohlc_data = dict()
-    holding = dict()
-    returns = pd.DataFrame()
-    for ticker in weights.keys():
-        try:
-            ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
-        except FileNotFoundError as e:
-            ohlc_filename = download_historical_data(start_date, f"{ticker}-PERP", resolution)
-            ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
-        
-        ohlc[f"return_{ticker}"] = (ohlc['close'] - ohlc['open'][0]) / ohlc['open'][0]
-        returns[ticker] = ohlc[f"return_{ticker}"]
-
-    for k,v in weights.items():
-        returns[k] = returns[k] * v
-    returns["cum_returns"] = returns.sum(axis=1)
-    remove_data()
-
-    plt.figure(figsize=(15,10))
-    plt.plot(returns["cum_returns"], color='black', label='return')
-    for ticker in weights.keys():
-        plt.plot(returns[ticker], label=ticker)
-    plt.legend()
-
-
-    return returns
-
-def multi_weighted_index_v2(weights, lookback_window , resolution="1h"):
+def multi_weighted_index(weights, lookback_window , resolution="1h"):
     """
     Multiweighted index visualizer
     weights - dictionary of tickers with respective weights (negative weight indicates short)
@@ -212,8 +177,8 @@ def multi_weighted_index_v2(weights, lookback_window , resolution="1h"):
     """
     start_date = date.today() - timedelta(int(lookback_window))
     returns = pd.DataFrame()
+    for ticker in weights.keys(): download_historical_data(start_date, f"{ticker}-PERP", resolution)
     for ticker in weights.keys():
-        download_historical_data(start_date, f"{ticker}-PERP", resolution)
         ohlc = read_historical_data(start_date, f"{ticker}-PERP", resolution)
         ohlc[f"return_{ticker}"] = (ohlc['close'] - ohlc['open'][0]) / ohlc['open'][0]
         returns[ticker] = ohlc[f"return_{ticker}"]
