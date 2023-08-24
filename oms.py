@@ -18,7 +18,7 @@ class OMS:
                             'secret': "",
                             'enableRateLimit': True,
                         })
-                
+        
 
         self.oms =  ftx
 
@@ -102,8 +102,6 @@ class OMS:
     def chase_limit(self, markets):
         bid_ask = self.bid_ask(markets)
         print(bid_ask)
-
-
 
     def last_prices(self, markets):
         mkts = pd.DataFrame(self.oms.fetch_markets())
