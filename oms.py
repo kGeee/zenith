@@ -1,28 +1,37 @@
-import ccxt
+# import ccxt
 import time
 from concurrent.futures import ThreadPoolExecutor, thread
 import concurrent.futures
-from matplotlib.pyplot import axis
+# from matplotlib.pyplot import axis
 from numpy import size
 import os
-from termcolor import colored
+# from termcolor import colored
 import pandas as pd
-from prettytable import PrettyTable
+# from prettytable import PrettyTable
 
+import json
+
+import eth_account
+
+
+from hyperliquid.exchange import Exchange
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
 
 class OMS:
-    def __init__(self):
+    def __init__(self, config, account, vault):
+        self.config = config
+        self.account = account
+        self.vault = vault
+        self.info = Info(constants.TESTNET_API_URL, skip_ws=True)
+        self.oms = Exchange(account, constants.TESTNET_API_URL, vault_address=vault)
 
-        ftx = ccxt.ftx({
-                            'apiKey': "",
-                            'secret': "",
-                            'enableRateLimit': True,
-                        })
-        
+        meta = self.info.meta()
+        self.sz_decimals = {}
+        for asset_info in meta["universe"]:
+            self.sz_decimals[asset_info["name"]] = asset_info["szDecimals"]
 
-        self.oms =  ftx
-
-    def scale(self, price_range:tuple, num_orders:int):
+    def scale(self, rnd, price_range:tuple, num_orders:int):
         """
         price_range : Range of prices to be filled ex. (10,20)
         num_orders : number of orders
@@ -31,47 +40,60 @@ class OMS:
         prices = list()
         for i in range(num_orders):
             value = price_range[0] + 2.75*i*step
-            prices.append(value)
+            prices.append(round(value,int(rnd)))
             step -= step/num_orders
         return prices
 
-    def buy_range(self, symbol:str, b_range:tuple, size:int, num_orders:int):
+    def buy_range(self, symbol:str, rnd, b_range:tuple, size:int, num_orders:int):
         """
         symbol : Symbol for market
         b_range: Buy range
         size : size to be filled
         num_orders : amount of orders to fill
         """
-        buy = self.scale(b_range, num_orders=num_orders)
+        buy = self.scale(rnd, b_range, num_orders=num_orders)
         unit_size = size / len(buy)
         for i, price in enumerate(buy):
-            self.oms.create_order(symbol=symbol, side="buy", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
-
-    def sell_range(self, symbol, s_range, size, num_orders):
+            self.oms.order(coin=symbol, is_buy=True, sz = unit_size, limit_px=price, order_type={"limit": {"tif": "Gtc"}})
+    
+    def sell_range(self, symbol, rnd, s_range, size, num_orders):
         """
         symbol : Symbol for market
         s_range: Sell range
         size : size to be filled
         num_orders : amount of orders to fill
         """
-        sell = self.scale(s_range, num_orders=num_orders)
+        sell = self.scale(rnd, s_range, num_orders=num_orders)
         unit_size = size / len(sell)
         for i, price in enumerate(sell):
-            self.oms.create_order(symbol=symbol, side="sell", amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
+            self.oms.order(coin=symbol, is_buy=False, sz = unit_size, limit_px=price, order_type={"limit": {"tif": "Gtc"}})
 
-    def range(self, side, symbol, range, size, num_orders):
-        scale = self.scale(range, num_orders=num_orders)
+    def range(self, side, rnd, symbol, range, size, num_orders):
+        scale = self.scale(rnd, range, num_orders=num_orders)
         unit_size = size / len(scale)
+        orders = []
         for i, price in enumerate(scale):
-            self.oms.create_order(symbol=symbol, side=side, amount = unit_size, type="takeProfit", price=price, params={"triggerPrice":price})
+            orders.append({
+                            'coin':symbol, 
+                           'is_buy':side, 
+                           'sz' :unit_size, 
+                           'limit_px':price, 
+                           'order_type':{"limit": {"tif": "Gtc"}},
+                           "reduce_only": False,
+                           })
+        return orders
 
     def cancel_all_orders(self, symbol):
         """
         symbol : Symbol for market
         """
-        self.oms.cancel_all_orders( symbol, {'conditionalOrdersOnly': 'true'})
+        open_orders = self.info.open_orders(self.account.address)
+        for open_order in open_orders:
+            if open_order['coin'] == symbol:
+                print(f"cancelling order {open_order}")
+                self.oms.cancel(open_order["coin"], open_order["oid"])
 
-    def create_grid(self, symbol, sell_range, buy_range, size, num_orders):
+    def create_grid(self, symbol, rnd, sell_range, buy_range, size, num_orders):
         """
         symbol : Symbol for market
         sell_range: Sell range
@@ -80,9 +102,14 @@ class OMS:
         num_orders : amount of orders to fill
         """
 
-        self.range("buy", symbol, buy_range, int(size/2), int(num_orders/2))
-        self.range("sell", symbol, sell_range, int(size/2), int(num_orders/2))
+        buy_orders = self.range(True, rnd, symbol, buy_range, int(size/2), int(num_orders/2))
+        sell_orders = self.range(False, rnd, symbol, sell_range, int(size/2), int(num_orders/2))
+        print(self.oms.bulk_orders(buy_orders))
+        print(self.oms.bulk_orders(sell_orders))
 
+    def bulk(self, orders):
+        print(self.oms.bulk_orders(orders))
+        
     def balance(self):
         df = pd.DataFrame(self.oms.fetch_balance()['info']['result'])
         sum = 0
