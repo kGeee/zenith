@@ -165,8 +165,6 @@ class OMS:
             executed_orders += 1
             time.sleep(duration)
 
-
-
     def twap(self, side:str, symbol:str, size:float, duration:int, orders:int = 20):
         """
         side : side to fill - "buy" or "sell"
