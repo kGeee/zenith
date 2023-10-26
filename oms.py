@@ -26,10 +26,10 @@ class OMS:
         self.info = Info(constants.TESTNET_API_URL, skip_ws=True)
         self.oms = Exchange(account, constants.TESTNET_API_URL, vault_address=vault)
 
-        meta = self.info.meta()
-        self.sz_decimals = {}
-        for asset_info in meta["universe"]:
-            self.sz_decimals[asset_info["name"]] = asset_info["szDecimals"]
+        # meta = self.info.meta()
+        # self.sz_decimals = {}
+        # for asset_info in meta["universe"]:
+        #     self.sz_decimals[asset_info["name"]] = asset_info["szDecimals"]
 
     def scale(self, rnd, price_range:tuple, num_orders:int):
         """
@@ -104,8 +104,12 @@ class OMS:
 
         buy_orders = self.range(True, rnd, symbol, buy_range, int(size/2), int(num_orders/2))
         sell_orders = self.range(False, rnd, symbol, sell_range, int(size/2), int(num_orders/2))
-        print(self.oms.bulk_orders(buy_orders))
-        print(self.oms.bulk_orders(sell_orders))
+        buy_resp = self.oms.bulk_orders(buy_orders)
+        sell_resp = self.oms.bulk_orders(sell_orders)
+        if buy_resp['status'] == 'ok':
+            print(symbol, "buys submitted")
+        if sell_resp['status'] == 'ok':
+            print(symbol, "sells submitted")
 
     def bulk(self, orders):
         print(self.oms.bulk_orders(orders))

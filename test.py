@@ -8,6 +8,7 @@ from hyperliquid.info import Info
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 import numpy as np
+import cProfile
 import asyncio
 
 config = utils.get_config()
@@ -99,11 +100,95 @@ def get_positions():
         pos[i]['beta'] = round(beta,3)
         pos[i]['betaWeighted'] = pos[i]['positionValue'] * beta * -1 if pos[i]['size'] < 0 else pos[i]['positionValue'] * beta
 
-    print(pos)
+    # print(pos)
     total_position_value = round(sum([i['positionValue'] for i in pos.values()]),2)
     total_pnl = round(sum([i['uPnl'] for i in pos.values()]),2)
     total_beta_weight = round(sum([i['betaWeighted'] for i in pos.values()]),2)
-    print(total_position_value, total_beta_weight, total_pnl)
+    print("total value", total_position_value, total_beta_weight) 
+    print("total pnl",  total_pnl)
+    return {
+        'positions': pos,
+        'totalPositionValue': total_position_value,
+        'totalBetaWeight': total_beta_weight
+    }
 
 
-get_positions()
+# get_positions()
+def cancel_open_orders(coin, resting):
+    open_orders = [{'coin': coin, 'oid': i['oid']} for i in resting if i['coin'] == coin]
+    o.oms.bulk_cancel(open_orders)
+    print("cancelled open", coin, "orders")
+def mm(spreads):
+    """
+    coins: list of coins to make spreads on
+    spread: dict of spread config
+    refresh_rate: how often to refresh grid orders (minutes)
+    inventory: dict of inventory to use
+
+    In order to mm, we need to create a grid of orders around the mid price. This grid will refresh every refresh_rate minutes.
+    We need to create some kind of dynamic activity on the grid where if we fully fill the grid, we can stop making new orders for the side that is filled and
+    only update the take profit side.
+
+    Use o.create_grid("SOL", 2, (36, 38), (31, 29), 20, 10) to create orders on the coins scaled via the spread
+    i.e. spread = {'SOL': (buy_spread, sell_spread)} (0.01, 0.03)
+
+    """
+    markets = info.all_mids()
+    resting = info.open_orders(account.address)
+    for coin,spread in spreads.items():
+        # cancel all resting orders
+        cancel_open_orders(coin, resting)
+        print("cancelled open", coin, "orders")
+        # create grid
+        mid = float(markets[coin])
+        sell1, sell2 = mid * (1+spread['sell'][0]), mid * (1+spread['sell'][1])
+        buy1, buy2  = mid * (1-spread['buy'][0]), mid * (1-spread['buy'][1])
+        o.create_grid(coin, 2, (sell1, sell2), (buy1, buy2), spread['inventory']/mid, 10)
+
+
+spreads = { 'SOL': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
+            'TRB': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
+            'AVAX': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
+            'DYDX': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500}
+            }
+
+# mm(spreads)
+
+def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'INJ':.5}, value = 1000):
+    """
+    take in weights and rebalance portfolio
+    1. get current positions
+    2. get desired positions based on $ allocated
+    3. generate orders for desired positions
+    """
+    positions = get_positions()
+    markets = info.all_mids()
+    usd_vals = {k:v*value for k,v in weights.items()}
+    current_pos = {k:(v['positionValue'], v['positionValue'] / v['size']) for k,v in positions['positions'].items()}
+    orders_pos = {} #{k:round(v-current_pos[k][0] if positions['positions'][k]['size'] > 0 else v+current_pos[k][0],2) for k,v in usd_vals.items() }
+
+    for k,v in usd_vals.items():
+        if k in positions['positions']:
+            orders_pos[k] = round(v-current_pos[k][0] if positions['positions'][k]['size'] > 0 else v+current_pos[k][0],2)
+        else:
+            orders_pos[k] = v
+    print(orders_pos)
+
+    orders = []
+    for symbol, order in orders_pos.items():
+        side = True if order > 0 else False
+        mid_price = float(markets[symbol])
+        orders.append(
+                {
+                        "coin": symbol,
+                        "is_buy": side,
+                        "sz": round(abs(order) / mid_price,2),
+                        "limit_px": round(mid_price,3),
+                        "order_type": {"limit": {"tif": "Gtc"}},
+                        "reduce_only": False,
+                    }
+            )
+    print(orders)
+    print(o.oms.bulk_orders(orders))
+
+rebalance()
