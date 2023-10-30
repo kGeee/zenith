@@ -25,7 +25,6 @@ o = OMS(config, account, vault)
 # o.create_grid("SOL", 2, (36, 38), (31, 29), 20, 10)
 # o.oms.order("ETH", False, .01, 1670, {"limit": {"tif": "Gtc"}})
 
-
 # index
 """
 1. get tickers and weight (negative weight indicates short)
@@ -113,7 +112,9 @@ def get_positions():
     }
 
 
-# get_positions()
+def get_open_orders():
+    return info.open_orders(account.address)
+
 def cancel_open_orders(coin, resting):
     open_orders = [{'coin': coin, 'oid': i['oid']} for i in resting if i['coin'] == coin]
     o.oms.bulk_cancel(open_orders)
@@ -146,15 +147,15 @@ def mm(spreads):
         o.create_grid(coin, 2, (sell1, sell2), (buy1, buy2), spread['inventory']/mid, 10)
 
 
-spreads = { 'SOL': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
-            'TRB': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
-            'AVAX': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500},
-            'DYDX': {'buy':(0.01, 0.02), 'sell':(0.01, 0.02), 'inventory':500}
+spreads = { 'SOL': {'buy':(0.01, 0.02), 'sell':(0.02, 0.03), 'inventory':280},
+            'APT': {'buy':(0.005, 0.01), 'sell':(0.005, 0.01), 'inventory':350},
+            'ATOM': {'buy':(0.02, 0.03), 'sell':(0.01, 0.02), 'inventory':505},
+            'AVAX': {'buy':(0.02, 0.03), 'sell':(0.01, 0.02), 'inventory':200},
             }
 
-# mm(spreads)
+mm(spreads)
 
-def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'INJ':.5}, value = 1000):
+def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'ATOM':.5, 'ETH':-.25}, value = 1000):
     """
     take in weights and rebalance portfolio
     1. get current positions
@@ -177,18 +178,22 @@ def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'INJ':.5}, value = 1000):
     orders = []
     for symbol, order in orders_pos.items():
         side = True if order > 0 else False
-        mid_price = float(markets[symbol])
-        orders.append(
-                {
-                        "coin": symbol,
-                        "is_buy": side,
-                        "sz": round(abs(order) / mid_price,2),
-                        "limit_px": round(mid_price,3),
-                        "order_type": {"limit": {"tif": "Gtc"}},
-                        "reduce_only": False,
-                    }
-            )
+        mid_price = float(markets[symbol]) + 0.05 if side else float(markets[symbol]) - 0.05
+        if abs(order) > 10:
+            orders.append(
+                    {
+                            "coin": symbol,
+                            "is_buy": side,
+                            "sz": round(abs(order) / mid_price,2),
+                            "limit_px": round(mid_price,2),
+                            "order_type": {"limit": {"tif": "Gtc"}},
+                            "reduce_only": False,
+                        }
+                )
     print(orders)
     print(o.oms.bulk_orders(orders))
 
-rebalance()
+
+# rebalance()
+# get_positions()
+
