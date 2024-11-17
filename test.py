@@ -11,25 +11,8 @@ import numpy as np
 import cProfile
 import asyncio
 
-config = utils.get_config()
-account: LocalAccount = eth_account.Account.from_key(config["secret_key"])
-info = Info(constants.TESTNET_API_URL, skip_ws=True)
-# Change this address to a vault that you lead
-vault = None
 
-o = OMS(config, account, vault)
-# for i in range(5):
-#     orders = o.range(False, 4, "BLZ", (2.19,2.195), 50, 10)
-#     o.bulk(orders)
 
-# o.create_grid("SOL", 2, (36, 38), (31, 29), 20, 10)
-# o.oms.order("ETH", False, .01, 1670, {"limit": {"tif": "Gtc"}})
-
-# index
-"""
-1. get tickers and weight (negative weight indicates short)
-2. send orders placed at current mid price from info.all_mids
-"""
 def hl_index(weights, total_notional):
     # weights = {'SOL':.5, 'ETH':-.5, 'BTC':.3}
     # total_notional = 4000
@@ -91,7 +74,8 @@ def beta_calc(symbol):
     return beta
 
 def get_positions():
-    positions = [i for i in info.user_state(account.address)['assetPositions'] if i['position']['entryPx'] != None]
+    user = account.address if vault is None else vault
+    positions = [i for i in info.user_state(user)['assetPositions'] if i['position']['entryPx'] != None]
     pos = {i['position']['coin']:{'positionValue':float(i['position']['positionValue']), 'size': float(i['position']['szi']), 'uPnl': float(i['position']['unrealizedPnl'])} for i in positions}
     
     for i in pos.keys():
@@ -111,15 +95,22 @@ def get_positions():
         'totalBetaWeight': total_beta_weight
     }
 
-
 def get_open_orders():
-    return info.open_orders(account.address)
+    user = account.address if vault is None else vault
+    return info.open_orders(user)
 
-def cancel_open_orders(coin, resting):
+async def cancel_open_orders(coin, resting):
     open_orders = [{'coin': coin, 'oid': i['oid']} for i in resting if i['coin'] == coin]
     o.oms.bulk_cancel(open_orders)
     print("cancelled open", coin, "orders")
-def mm(spreads):
+
+async def grid(coin, markets, spread):
+    mid = float(markets[coin])
+    sell1, sell2 = mid * (1+spread['sell'][0]), mid * (1+spread['sell'][1])
+    buy1, buy2  = mid * (1-spread['buy'][0]), mid * (1-spread['buy'][1])
+    o.create_grid(coin, 2, (sell1, sell2), (buy1, buy2), spread['inventory']/mid, 10)
+
+async def mm(spreads):
     """
     coins: list of coins to make spreads on
     spread: dict of spread config
@@ -136,24 +127,9 @@ def mm(spreads):
     """
     markets = info.all_mids()
     resting = info.open_orders(account.address)
-    for coin,spread in spreads.items():
-        # cancel all resting orders
-        cancel_open_orders(coin, resting)
-        print("cancelled open", coin, "orders")
-        # create grid
-        mid = float(markets[coin])
-        sell1, sell2 = mid * (1+spread['sell'][0]), mid * (1+spread['sell'][1])
-        buy1, buy2  = mid * (1-spread['buy'][0]), mid * (1-spread['buy'][1])
-        o.create_grid(coin, 2, (sell1, sell2), (buy1, buy2), spread['inventory']/mid, 10)
 
-
-spreads = { 'SOL': {'buy':(0.01, 0.02), 'sell':(0.02, 0.03), 'inventory':280},
-            'APT': {'buy':(0.005, 0.01), 'sell':(0.005, 0.01), 'inventory':350},
-            'ATOM': {'buy':(0.02, 0.03), 'sell':(0.01, 0.02), 'inventory':505},
-            'AVAX': {'buy':(0.02, 0.03), 'sell':(0.01, 0.02), 'inventory':200},
-            }
-
-mm(spreads)
+    await asyncio.gather(*(cancel_open_orders(coin,resting) for coin in spreads.keys()))    
+    await asyncio.gather(*(grid(coin, markets, spreads[coin]) for coin in spreads.keys() )  )
 
 def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'ATOM':.5, 'ETH':-.25}, value = 1000):
     """
@@ -166,14 +142,14 @@ def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'ATOM':.5, 'ETH':-.25}, value = 10
     markets = info.all_mids()
     usd_vals = {k:v*value for k,v in weights.items()}
     current_pos = {k:(v['positionValue'], v['positionValue'] / v['size']) for k,v in positions['positions'].items()}
-    orders_pos = {} #{k:round(v-current_pos[k][0] if positions['positions'][k]['size'] > 0 else v+current_pos[k][0],2) for k,v in usd_vals.items() }
+    orders_pos = {} 
 
     for k,v in usd_vals.items():
         if k in positions['positions']:
             orders_pos[k] = round(v-current_pos[k][0] if positions['positions'][k]['size'] > 0 else v+current_pos[k][0],2)
         else:
             orders_pos[k] = v
-    print(orders_pos)
+    # print(orders_pos)
 
     orders = []
     for symbol, order in orders_pos.items():
@@ -181,7 +157,7 @@ def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'ATOM':.5, 'ETH':-.25}, value = 10
         mid_price = float(markets[symbol]) + 0.05 if side else float(markets[symbol]) - 0.05
         if abs(order) > 10:
             orders.append(
-                    {
+                        {
                             "coin": symbol,
                             "is_buy": side,
                             "sz": round(abs(order) / mid_price,2),
@@ -190,10 +166,36 @@ def rebalance(weights = {'SOL':.3, 'AVAX':.2, 'ATOM':.5, 'ETH':-.25}, value = 10
                             "reduce_only": False,
                         }
                 )
-    print(orders)
-    print(o.oms.bulk_orders(orders))
+    for x in orders: print(f"{'Buying' if x['is_buy'] else 'Selling'} {x['coin']} {x['sz']} @ {x['limit_px']}")
+
+    o.oms.bulk_orders(orders)
+
+config = utils.get_config()
+account: LocalAccount = eth_account.Account.from_key(config["secret_key"])
+info = Info(constants.TESTNET_API_URL, skip_ws=True)
+# Change this address to a vault that you lead
+vault = None #"0xe0f75462a7ec115736207d647fa146395de88335"
 
 
-# rebalance()
+# weights = {'SOL':-.7, 'AVAX':-.3, 'ETH':1}
+# value = 2500
+
+# for i in range(24):
+#     o = OMS(config, account, vault)
+
+#     rebalance(weights = weights, value = value)
+#     time.sleep(60*60)
+
+spreads = { 'SOL': {'buy':(0.05, 0.1), 'sell':(0.02, 0.05), 'inventory':2000},
+            'ETH': {'buy':(0.02, 0.03), 'sell':(0.02, 0.05), 'inventory':2500},
+            'AVAX': {'buy':(0.01, 0.02), 'sell':(0.03, 0.4), 'inventory':800},
+           
+            }
+
+# for k,v in spreads.items():
+#     v['inventory'] = abs(weights[k] * value)
+# print(spreads)
+o = OMS(config, account, vault)
 # get_positions()
-
+print(get_open_orders())
+# asyncio.run(mm(spreads))

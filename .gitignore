@@ -1,3 +1,4 @@
 .env
 data
 config.json
+config_testnet.json
