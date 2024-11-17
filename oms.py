@@ -5,9 +5,9 @@ import concurrent.futures
 # from matplotlib.pyplot import axis
 from numpy import size
 import os
-# from termcolor import colored
+from termcolor import colored
 import pandas as pd
-# from prettytable import PrettyTable
+from prettytable import PrettyTable
 
 import json
 
@@ -18,10 +18,35 @@ from hyperliquid.exchange import Exchange
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 
+def setup(vault_address=None,base_url=None, skip_ws=False):
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    with open(config_path) as f:
+        config = json.load(f)
+    account: LocalAccount = eth_account.Account.from_key(config["secret_key"])
+    address = config.get("account_address")
+    if address == "" or address == None:
+        address = account.address
+    print("Running with account address:", address)
+    if address != account.address:
+        print("Running with agent address:", account.address)
+    info = Info(base_url, skip_ws)
+    user_state = info.user_state(address)
+    margin_summary = user_state["marginSummary"]
+    if float(margin_summary["accountValue"]) == 0:
+        print("Not running the example because the provided account has no equity.")
+        url = info.base_url.split(".", 1)[1]
+        error_string = f"No accountValue:\nIf you think this is a mistake, make sure that {address} has a balance on {url}.\nIf address shown is your API wallet address, update the config to specify the address of your account, not the address of the API wallet."
+        raise Exception(error_string)
+    if vault_address:
+        print("Running with vault address:", vault_address)
+        exchange = Exchange(account, base_url, vault_address=vault_address)
+    else:
+        exchange = Exchange(account, base_url, account_address=address)
+    return address, info, exchange
+
 class OMS:
-    def __init__(self, config, account, vault):
-        self.config = config
-        self.account = account
+    def __init__(self, vault):
+        address, info, exchange = setup(vault, constants.MAINNET_API_URL, skip_ws=True)
         self.vault = vault
         self.info = Info(constants.MAINNET_API_URL, skip_ws=True)
         self.oms = Exchange(account, constants.MAINNET_API_URL, vault_address=vault)
@@ -44,7 +69,7 @@ class OMS:
             step -= step/num_orders
         return prices
 
-    def buy_range(self, symbol:str, rnd, b_range:tuple, size:int, num_orders:int):
+    def buy_range(self, symbol:str, rnd, b_range:tuple, size:float, num_orders:int):
         """
         symbol : Symbol for market
         b_range: Buy range
@@ -53,6 +78,7 @@ class OMS:
         """
         buy = self.scale(rnd, b_range, num_orders=num_orders)
         unit_size = size / len(buy)
+
         for i, price in enumerate(buy):
             self.oms.order(coin=symbol, is_buy=True, sz = unit_size, limit_px=price, order_type={"limit": {"tif": "Gtc"}})
     
@@ -67,6 +93,20 @@ class OMS:
         unit_size = size / len(sell)
         for i, price in enumerate(sell):
             self.oms.order(coin=symbol, is_buy=False, sz = unit_size, limit_px=price, order_type={"limit": {"tif": "Gtc"}})
+
+    def equal_range(self, symbol, mid_price, pct_dev, size, num_orders):
+        """
+        symbol : Symbol for market
+        mid_price : Mid price
+        pct_dev : Percentage deviation
+        size : size to be filled
+        num_orders : amount of orders to fill
+        """
+        self.create_grid(symbol, 5,
+                    	((mid_price*(1+pct_dev), mid_price*(1+(2*pct_dev)))) , 
+                        ((mid_price*(1-pct_dev), mid_price*(1-(2*pct_dev)))), 
+                        size, 
+                        num_orders)
 
     def range(self, side, rnd, symbol, range, size, num_orders):
         scale = self.scale(rnd, range, num_orders=num_orders)
@@ -87,11 +127,30 @@ class OMS:
         """
         symbol : Symbol for market
         """
-        open_orders = self.info.open_orders(self.account.address)
-        for open_order in open_orders:
-            if open_order['coin'] == symbol:
-                print(f"cancelling order {open_order}")
-                self.oms.cancel(open_order["coin"], open_order["oid"])
+        vault_bool = False
+        if self.vault:
+            vault_bool = True
+            open_orders = self.info.open_orders(self.vault)
+        else:
+            open_orders = self.info.open_orders(self.address)
+
+        coins = [i['coin'] for i in open_orders if i['coin'] == symbol]
+        open_orders = [i['oid'] for i in open_orders if i['coin'] == symbol]
+
+        self.cancel_orders(coins, open_orders)
+        # check if any remaining ordersxs
+        if vault_bool: open_orders = self.info.open_orders(self.vault)
+        else:  open_orders = self.info.open_orders(self.address)
+        if open_orders:
+            self.cancel_all_orders(symbol=symbol)
+
+        print("cancelled all orders for", symbol)
+
+    def cancel_orders(self, coins, open_orders):
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            results = executor.map(self.oms.cancel, coins, open_orders)
+        return list(results)
+
 
     def create_grid(self, symbol, rnd, sell_range, buy_range, size, num_orders):
         """
@@ -312,7 +371,6 @@ class OMS:
     def fetch_account_balance(self):
         balance = self.oms.fetch_balance()
         balances = [[i['coin'],i['usdValue']]for i in balance['info']['result'] if float(i['usdValue']) > 0.01]
-        # print(sum([round(float(i[1]),2) for i in balances]))
         return sum([round(float(i[1]),2) for i in balances])
 
     def positions(self):
@@ -417,4 +475,114 @@ class OMS:
             self.twap_df(final)
         self.net_lev()
         # print(pos.apply (lambda row: size(row), axis=1))
+
+
+    def get_positions(self):
+        response = self.info.user_state(self.vault)   
+
+
+        coins = {i['position']['coin']: (float(i['position']['positionValue']), float(i['position']['szi'])) for i in response['assetPositions']}
+        
+        return {
+            'positions' : coins,
+            'marginSummary' : (float(response['marginSummary']['accountValue']), float(response['marginSummary']['totalNtlPos']))
+        }
+
+    def hl_get_candles(self, symbol, interval, lookback_minutes):
+        candles = self.info.candles_snapshot(symbol, interval, int(time.time()*1000-(lookback_minutes*60000)), int(time.time()*1000))
+        candle_df = pd.DataFrame([[i['t'], i['s'], i['c']] for i in candles], columns=['time', 'symbol', 'close'])
+        return candle_df
+
+    def execute_desired_coins(self, desired_coins, last_mids):
+        for coin, sz in desired_coins.items():
+            usd_price = round(float(f"{(last_mids[coin]):.5g}"), 6)
+            if sz < 0 and abs(sz*usd_price) > 10:
+                print(f"placing order for {coin} of sz {sz} with price {usd_price}")
+                result=self.oms.order(coin, False, abs(round(sz, self.szMap[coin])), usd_price, {"limit": {"tif": "Gtc"}})
+            elif sz > 0 and (sz*usd_price) > 10:
+                print(f"placing order for {coin} of sz {sz} with price {usd_price}")
+                result=self.oms.order(coin, True, abs(round(sz, self.szMap[coin])), usd_price, {"limit": {"tif": "Gtc"}})
+            else:
+                print("not placing order for", coin, sz*usd_price, "order value")
+                result = {'response': {'data': {'statuses': ["OK"]}}}
+
+            if 'error' in result['response']['data']['statuses'][0]:
+                print("error placing order: ", result['response']['data']['statuses'][0]['error'])
+    
+    def hl_rebalance(self, markets, max_size):
+        """
+        param: markets : dictionary of tickers and weights
+        param: max_size : max size of position
+        param: range : % of range while rebalancing
+        1. get current position
+        2. get last price
+        3. calculate size
+        4. submit orders of top of book till balance is reached
+
+        We want the sum of the weights to equal 0
+        - sum of longs = sum of shorts = 1
+
+        Example: {'kPEPE': 1, 'ETH': -.7, 'LDO': -.3}
+        Max Size = 200
+        Size gets divided amongst long and shorts
+            - kPEPE : 1 -> LONG $100
+            - ETH : -.7 -> SHORT $70
+            - LDO : -.3  -> SHORT $30
+
+        On a rebalance interval, we will check how far away the pair has deviated from the target weights
+        and execute orders to bring it to the desired weights
+
+        """
+        min_order_size = 10
+        pos = self.get_positions()
+        last_mids = {ticker:float(last_mid) for ticker, last_mid in self.all_mids().items() if ticker in markets or ticker in pos['positions']}
+
+        def sign(val):
+            return 1 if val > 0 else -1
+        
+        current_amounts_usd = {
+            ticker : (pos['positions'][ticker][0] * sign(pos['positions'][ticker][1])) for ticker in pos['positions']
+        }
+
+        # open orders
+        open_orders = [{'coin': i['coin'],
+                        'oid': i['oid']} for i in self.info.open_orders(self.vault)]
+        if open_orders:
+            print("cancelling open orders")
+            self.oms.bulk_cancel(open_orders)
+
+
+        # Desired Positions
+        desired_usd = {coin: weight * max_size/2 for coin, weight in markets.items()}
+        for coin in current_amounts_usd.keys():
+            if coin not in desired_usd:
+                desired_usd[coin] = 0
+
+        for coin, weight in markets.items():
+            if weight * max_size/2 // min_order_size > 0:
+                desired_usd[coin] = weight * max_size/2
+        
+        # Subtract current positions from desired coins
+        for coin,value in desired_usd.items():
+            if coin in current_amounts_usd:
+                desired_usd[coin] -= current_amounts_usd[coin]    
+
+        # others
+        for coin,value in current_amounts_usd.items():
+            if coin not in desired_usd:
+                desired_usd[coin] -= value
+
+        desired_coins = {coin: round(amount / last_mids[coin], self.szMap[coin]) for coin, amount in desired_usd.items()}
+        
+        # Orders
+        self.execute_desired_coins(desired_coins, last_mids)
+
+
+
+"""
+For each symbol we have 4 orders scaled on both sides of the book a configurable % away
+We submit these orders as a batch and have them randomly expire and replaced over a period
+of configured time. We also have a 
+
+"""
 
