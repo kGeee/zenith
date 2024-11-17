@@ -23,8 +23,8 @@ class OMS:
         self.config = config
         self.account = account
         self.vault = vault
-        self.info = Info(constants.TESTNET_API_URL, skip_ws=True)
-        self.oms = Exchange(account, constants.TESTNET_API_URL, vault_address=vault)
+        self.info = Info(constants.MAINNET_API_URL, skip_ws=True)
+        self.oms = Exchange(account, constants.MAINNET_API_URL, vault_address=vault)
 
         # meta = self.info.meta()
         # self.sz_decimals = {}
@@ -113,7 +113,65 @@ class OMS:
 
     def bulk(self, orders):
         print(self.oms.bulk_orders(orders))
-        
+
+    def bulk_modify(self, modify_orders):
+        self.oms.bulk_modify_orders_new(modify_orders)
+    def get_open_orders(self):
+        user = self.account.address if self.vault is None else self.vault
+        return self.info.open_orders(user)
+
+    def tighten_orders(self, coin, bump):
+        bumped_orders = []
+        for order in self.get_open_orders(): 
+            if order['coin'] == coin:
+                bumped_order = {
+                    "oid": order['oid'],
+                    "order": {
+                        "coin": order['coin'],
+                        "is_buy": order['side'] == 'B',
+                        "sz": float(order['sz']),
+                        "limit_px": float(order['limitPx'])+bump if order['side'] == 'A' else float(order['limitPx'])-bump,
+                        "order_type": {"limit": {"tif": "Gtc"}},
+                        "reduce_only": False
+                    }
+                }
+                bumped_orders.append(bumped_order)
+                
+        self.bulk_modify(bumped_orders)
+
+    def bump(self, coin, bump, side):
+        # "SOL", 0.1, 'B'
+        # bump by side
+        # get open orders
+        # for coin + side 
+            # bump
+        # submit
+        bumped_orders = []
+        for order in self.get_open_orders(): 
+            if order['coin'] == coin:
+                print(order['side'])
+                if side == order['side']:
+                    
+                    new_price = float(order['limitPx'])-bump if order['side'] == 'A' else float(order['limitPx'])+bump
+                    print(order['limitPx'], new_price)
+                    bumped_order = {
+                        "oid": order['oid'],
+                        "order": {
+                            "coin": order['coin'],
+                            "is_buy": order['side'] == 'B',
+                            "sz": float(order['sz']),
+                            "limit_px": new_price,
+                            "order_type": {"limit": {"tif": "Gtc"}},
+                            "reduce_only": False
+                        }
+                    }
+                    bumped_orders.append(bumped_order)
+                
+                
+        self.bulk_modify(bumped_orders)
+
+
+
     def balance(self):
         df = pd.DataFrame(self.oms.fetch_balance()['info']['result'])
         sum = 0
@@ -250,11 +308,6 @@ class OMS:
 
     def buy_percentage(self, symbol):
         print(self.oms.fetch_orders(symbol=symbol))
-
-    def bump(self, ticker, bump_value):
-        # get trigger orders of ticker
-        # submit modified query with bump
-        pass
 
     def fetch_account_balance(self):
         balance = self.oms.fetch_balance()
